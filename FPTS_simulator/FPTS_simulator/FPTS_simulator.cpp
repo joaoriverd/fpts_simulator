@@ -1,6 +1,7 @@
 // Control_tasks_tool.cpp 
 //
 #include "stdafx.h"
+#include <limits>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -9,9 +10,10 @@
 #include <algorithm>    // std::sort
 using namespace std;
 
+#define SIM_STEP 3
+
 typedef size_t task_key_type;
 typedef size_t priority_type;
-
 
 struct task_type
 {
@@ -22,6 +24,8 @@ struct task_type
   size_t prio;
   size_t threashold;
   size_t phase;
+  size_t wcrt;
+  size_t bcrt;
 };
 
 struct job_type
@@ -61,8 +65,6 @@ void parse_file(std::ifstream& myfile)
   {
     string line;
 
-    myfile >> skipws >> simulation_time;
-
     // Ignore the next line.
     myfile.ignore(256, '#');
 
@@ -74,7 +76,7 @@ void parse_file(std::ifstream& myfile)
       myfile >> skipws >> task.deadline;
       myfile >> skipws >> task.prio;
       myfile >> skipws >> task.threashold;
-      myfile >> skipws >> task.phase;
+      //myfile >> skipws >> task.phase;
 
       task_set.push_back(task);
     }
@@ -137,8 +139,30 @@ bool schedule_next_job()
   return false;
 }
 
+size_t lcm(size_t a, size_t b)
+{
+  size_t m, n;
+
+  m = a;
+  n = b;
+
+  while (m != n)
+  {
+    if (m < n)
+    {
+      m = m + a;
+    }
+    else
+    {
+      n = n + b;
+    }
+  }
+
+  return m;
+}
+
 int main(int argc, char** argv) {
-  std::ofstream grasp_file;
+  //std::ofstream grasp_file;
 
   // Check arguments
   if (argc < 2)
@@ -172,108 +196,163 @@ int main(int argc, char** argv) {
     //return 0;
   }
 
-  grasp_file.open(argv[2]);
+  //grasp_file.open(argv[2]);
 
-  // First register all the tasks and plot the release time
-  size_t task_key = 0;
+  // We want to simulate during 4 lcm of the periods. Hence, first find the lcm.
+  size_t hyper_period = 1;
+  for (const task_type& t : task_set)
+  {
+    hyper_period = lcm(hyper_period, t.period);
+  }
+  simulation_time = 4*hyper_period + hyper_period/2;
+
+  // Initialise all the tasks
   for (task_type& t : task_set)
   {
-    t.key = task_key;
-    grasp_file << "newTask task" << t.key << " -priority " << t.key << " -name \"Task " << t.key+1 << "\"\n";
-
-    size_t n = simulation_time/t.period;
-
-    size_t activation_time = t.phase;
-    // Iterate over all jobs of task t and plot activation time
-    for (size_t k = 0; k < n; k++)
-    {
-      grasp_file << "plot " << activation_time << " jobArrived job" << t.key << "." << k << " task" << t.key << "\n";
-
-      // register two subjobs for each task instance
-      job_type job = { k, t.key, t.prio, t.computation, 0, activation_time };
-
-      released_jobs[activation_time].push_back(job);
-      activation_time += t.period;
-    }
-
-    task_key++;
+    t.phase = 0;
+    t.wcrt = 0;
+    t.bcrt = std::numeric_limits<size_t>::max();
   }
 
-  // Schedule all the jobs
-  running_job = { 0,0,0,0,0,0 };
-  size_t current_time = 0;
-  size_t prev_time = 0;
-  size_t sched_time = 0;
-  for (std::pair<size_t, std::vector<job_type>> new_jobs : released_jobs)
+  // Iterate until the last task changes its phase.
+  while (task_set.back().phase == 0)
   {
-    current_time = new_jobs.first;
-    sched_time = current_time - prev_time;
-
-    // First complete the schedule in the time period [prev_time, current_time)
-    while (sched_time > 0)
+    // First register all the tasks and plot the release time
+    size_t task_key = 0;
+    for (task_type& t : task_set)
     {
-      if (running_job.remaining_time <= sched_time && false == is_idle)
-      {
-        // The running job ends, schedule next job.
-        size_t finalization_time = running_job.restart_time + running_job.remaining_time;
-        size_t response_time = finalization_time - running_job.activation_time;
-        grasp_file << "plot " << finalization_time << " message \"Response time job" << running_job.parent_task << "." << running_job.key;
-        grasp_file << ": " << response_time << "\" -color blue -shape square\n";
-        grasp_file << "plot " << finalization_time << " jobCompleted job" << running_job.parent_task << "." << running_job.key;
-        sched_time -= running_job.remaining_time;
-        is_idle = true;
+      t.key = task_key;
+      //grasp_file << "newTask task" << t.key << " -priority " << t.key << " -name \"Task " << t.key+1 << "\"\n";
 
-        if (sched_time > 0)
+      size_t n = simulation_time / t.period;
+
+      size_t activation_time = t.phase;
+      // Iterate over all jobs of task t and plot activation time
+      for (size_t k = 0; k < n; k++)
+      {
+        //grasp_file << "plot " << activation_time << " jobArrived job" << t.key << "." << k << " task" << t.key << "\n";
+
+        // register two subjobs for each task instance
+        job_type job = { k, t.key, t.prio, t.computation, 0, activation_time };
+
+        released_jobs[activation_time].push_back(job);
+        activation_time += t.period;
+      }
+
+      task_key++;
+    }
+
+    // Schedule all the jobs
+    running_job = { 0,0,0,0,0,0 };
+    size_t current_time = 0;
+    size_t prev_time = 0;
+    size_t sched_time = 0;
+    for (std::pair<size_t, std::vector<job_type>> new_jobs : released_jobs)
+    {
+      current_time = new_jobs.first;
+      sched_time = current_time - prev_time;
+
+      // First complete the schedule in the time period [prev_time, current_time)
+      while (sched_time > 0)
+      {
+        if (running_job.remaining_time <= sched_time && false == is_idle)
         {
-          if (schedule_next_job())
+          // The running job ends, schedule next job.
+          size_t finalization_time = running_job.restart_time + running_job.remaining_time;
+          size_t response_time = finalization_time - running_job.activation_time;
+
+          if (current_time > 2 * hyper_period && current_time <= 4 * hyper_period)
           {
-            running_job.restart_time = current_time - sched_time;
-            grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
-            grasp_file << "plot " << running_job.restart_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
+            if (response_time > task_set[running_job.parent_task].wcrt)
+            {
+              task_set[running_job.parent_task].wcrt = response_time;
+            }
 
-            // lift priority to threashold
-            running_job.current_prio = task_set[running_job.parent_task].threashold;
-
-            is_idle = false;
+            if (response_time < task_set[running_job.parent_task].bcrt)
+            {
+              task_set[running_job.parent_task].bcrt = response_time;
+            }
           }
+
+          //grasp_file << "plot " << finalization_time << " message \"Response time job" << running_job.parent_task << "." << running_job.key;
+          //grasp_file << ": " << response_time << "\" -color blue -shape square\n";
+          //grasp_file << "plot " << finalization_time << " jobCompleted job" << running_job.parent_task << "." << running_job.key;
+          sched_time -= running_job.remaining_time;
+          is_idle = true;
+
+          if (sched_time > 0)
+          {
+            if (schedule_next_job())
+            {
+              running_job.restart_time = current_time - sched_time;
+              //grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
+              //grasp_file << "plot " << running_job.restart_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
+
+              // lift priority to threashold
+              running_job.current_prio = task_set[running_job.parent_task].threashold;
+
+              is_idle = false;
+            }
+          }
+
+          //grasp_file << "\n";
         }
+        else
+        {
+          // The running job has not ended yet.
+          running_job.remaining_time -= sched_time;
+          running_job.restart_time += sched_time;
+          sched_time = 0;
+        }
+      }
 
-        grasp_file << "\n";
-      }
-      else
+      // Add the released jobs to active jobs and order by priorities
+      active_jobs.insert(active_jobs.end(), new_jobs.second.begin(), new_jobs.second.end());
+
+      // Decide which job to schedule between the running job, the active jobs and the preemented jobs.
+      bool was_idle = is_idle;
+      running_job_type prev_job = running_job;
+      if (schedule_next_job())
       {
-        // The running job has not ended yet.
-        running_job.remaining_time -= sched_time;
-        running_job.restart_time += sched_time;
-        sched_time = 0;
+        running_job.restart_time = current_time;
+        if (false == was_idle)
+        {
+          //grasp_file << "plot " << current_time << " jobPreempted job" << prev_job.parent_task << "." << prev_job.key;
+          //grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
+        }
+        //grasp_file << "plot " << current_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
+
+        // lift priority to threashold
+        running_job.current_prio = task_set[running_job.parent_task].threashold;
+
+        is_idle = false;
       }
+
+      prev_time = current_time;
     }
 
-    // Add the released jobs to active jobs and order by priorities
-    active_jobs.insert(active_jobs.end(), new_jobs.second.begin(), new_jobs.second.end());
+    // Clean all vectors used to prepare for next iteration
+    released_jobs.clear();
+    active_jobs.clear();
+    preempted_jobs.clear();
 
-    // Decide which job to schedule between the running job, the active jobs and the preemented jobs.
-    bool was_idle = is_idle;
-    running_job_type prev_job = running_job;
-    if (schedule_next_job())
+    // Modify the phase for next iteration
+    size_t carry = SIM_STEP;
+    for (task_type& t : task_set)
     {
-      running_job.restart_time = current_time;
-      if (false == was_idle)
-      {
-        grasp_file << "plot " << current_time << " jobPreempted job" << prev_job.parent_task << "." << prev_job.key;
-        grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
-      }
-      grasp_file << "plot " << current_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
-
-      // lift priority to threashold
-      running_job.current_prio = task_set[running_job.parent_task].threashold;
-
-      is_idle = false;
+      t.phase += carry;
+      carry = (t.phase / t.period)*SIM_STEP;
+      t.phase = t.phase%t.period;
     }
-
-    prev_time = current_time;
   }
+  // Print BCRT and WCRT found in the simulation.
+  std::cout << "Task | BCRT | WCRT\n";
+  std::cout << "------------------\n";
+  for (const task_type& t : task_set)
+  {
+    std::cout << " " << t.key << "   |  " << t.bcrt << "   |  " << t.wcrt << "\n";
+  } 
 
-  grasp_file.close();
+  //grasp_file.close();
   return 0;
 }
