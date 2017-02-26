@@ -17,18 +17,16 @@ struct task_type
 {
   size_t key;
   size_t period;
-  size_t computation_job1;
-  size_t computation_job2;
+  size_t computation;
   size_t deadline;
-  size_t phase;
   size_t prio;
   size_t threashold;
+  size_t phase;
 };
 
-struct sub_job_type
+struct job_type
 {
   size_t key;
-  task_key_type parent_job;
   task_key_type parent_task;
   size_t current_prio;
   size_t remaining_time;
@@ -36,27 +34,21 @@ struct sub_job_type
   size_t activation_time;
 };
 
-typedef sub_job_type running_job_type;
+typedef job_type running_job_type;
 
-std::map<size_t, std::vector<sub_job_type>> released_jobs;
-std::vector<sub_job_type> active_jobs;
-std::vector<sub_job_type> preempted_jobs;
+std::map<size_t, std::vector<job_type>> released_jobs;
+std::vector<job_type> active_jobs;
+std::vector<job_type> preempted_jobs;
 running_job_type running_job;
 size_t simulation_time;
 std::vector<task_type> task_set;
 bool is_idle = true;
 
-bool job_compare(const sub_job_type& j1, const sub_job_type& j2) {
+bool job_compare(const job_type& j1, const job_type& j2) {
 
-  if (j1.current_prio == j2.current_prio)
+  if (j1.parent_task == j2.parent_task)
   {
-
-    if (j1.parent_job == j2.parent_job)
-    {
-      return j1.key > j2.key;
-    }
-
-    return j1.parent_job > j2.parent_job;
+    return j1.key > j2.key;
   }
 
   return j1.current_prio < j2.current_prio;
@@ -78,8 +70,7 @@ void parse_file(std::ifstream& myfile)
     {
       task_type task;
       myfile >> skipws >> task.period;
-      myfile >> skipws >> task.computation_job1;
-      myfile >> skipws >> task.computation_job2;
+      myfile >> skipws >> task.computation;
       myfile >> skipws >> task.deadline;
       myfile >> skipws >> task.prio;
       myfile >> skipws >> task.threashold;
@@ -99,13 +90,13 @@ void parse_file(std::ifstream& myfile)
 
 bool schedule_next_job()
 {
-  std::vector<sub_job_type>* vector_ptr = NULL;
+  std::vector<job_type>* vector_ptr = NULL;
   std::sort(active_jobs.begin(), active_jobs.end(), job_compare);
   std::sort(preempted_jobs.begin(), preempted_jobs.end(), job_compare);
 
-  sub_job_type job_temp = { 0,0,0,0,0,0 };
+  job_type job_temp = { 0,0,0,0,0,0 };
 
-  if (active_jobs.size()>0)
+  if (active_jobs.size() > 0)
   {
     job_temp = active_jobs.back();
     vector_ptr = &active_jobs;
@@ -149,6 +140,7 @@ bool schedule_next_job()
 int main(int argc, char** argv) {
   std::ofstream grasp_file;
 
+  // Check arguments
   if (argc < 2)
   {
     std::cout << "Error: You should specify an input task set.\n";
@@ -157,8 +149,10 @@ int main(int argc, char** argv) {
 
   std::ifstream myfile(argv[1]);
 
+  // Parse input file
   parse_file(myfile);
 
+  // Check that taskset is not empty
   if (task_set.size() == 0)
   {
     cout << "No task set read.\n";
@@ -169,7 +163,7 @@ int main(int argc, char** argv) {
   double utilization = 0;
   for (const task_type& t : task_set)
   {
-    utilization += ((t.computation_job1 + t.computation_job2) * 100) / t.period;
+    utilization += ((t.computation) * 100) / t.period;
   }
 
   if (utilization > 100)
@@ -185,38 +179,36 @@ int main(int argc, char** argv) {
   for (task_type& t : task_set)
   {
     t.key = task_key;
-    grasp_file << "newTask task" << t.key << " -priority " << t.key << " -name \"Task " << t.key << "\"\n";
+    grasp_file << "newTask task" << t.key << " -priority " << t.key << " -name \"Task " << t.key+1 << "\"\n";
 
-    size_t n = simulation_time / t.period;
+    size_t n = simulation_time/t.period;
 
     size_t activation_time = t.phase;
+    // Iterate over all jobs of task t and plot activation time
     for (size_t k = 0; k < n; k++)
     {
-      grasp_file << "plot " << activation_time << " jobArrived job" << t.key << "." << k << "." << 1 << " task" << t.key << "\n";
-      grasp_file << "plot " << activation_time << " jobArrived job" << t.key << "." << k << "." << 2 << " task" << t.key << "\n";
+      grasp_file << "plot " << activation_time << " jobArrived job" << t.key << "." << k << " task" << t.key << "\n";
 
       // register two subjobs for each task instance
-      sub_job_type job1 = { 1, k, t.key, t.prio, t.computation_job1, 0, activation_time };
-      sub_job_type job2 = { 2, k, t.key, t.prio, t.computation_job2, 0, activation_time };
-      released_jobs[activation_time].push_back(job1);
-      released_jobs[activation_time].push_back(job2);
+      job_type job = { k, t.key, t.prio, t.computation, 0, activation_time };
+
+      released_jobs[activation_time].push_back(job);
       activation_time += t.period;
     }
 
     task_key++;
   }
 
-
   // Schedule all the jobs
   running_job = { 0,0,0,0,0,0 };
   size_t current_time = 0;
   size_t prev_time = 0;
-  for (std::pair<size_t, std::vector<sub_job_type>> new_jobs : released_jobs)
+  size_t sched_time = 0;
+  for (std::pair<size_t, std::vector<job_type>> new_jobs : released_jobs)
   {
-    size_t sched_time;
     current_time = new_jobs.first;
-
     sched_time = current_time - prev_time;
+
     // First complete the schedule in the time period [prev_time, current_time)
     while (sched_time > 0)
     {
@@ -225,9 +217,9 @@ int main(int argc, char** argv) {
         // The running job ends, schedule next job.
         size_t finalization_time = running_job.restart_time + running_job.remaining_time;
         size_t response_time = finalization_time - running_job.activation_time;
-        grasp_file << "plot " << finalization_time << " message \"Response time job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key;
+        grasp_file << "plot " << finalization_time << " message \"Response time job" << running_job.parent_task << "." << running_job.key;
         grasp_file << ": " << response_time << "\" -color blue -shape square\n";
-        grasp_file << "plot " << finalization_time << " jobCompleted job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key;
+        grasp_file << "plot " << finalization_time << " jobCompleted job" << running_job.parent_task << "." << running_job.key;
         sched_time -= running_job.remaining_time;
         is_idle = true;
 
@@ -236,14 +228,11 @@ int main(int argc, char** argv) {
           if (schedule_next_job())
           {
             running_job.restart_time = current_time - sched_time;
-            grasp_file << " -target job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key << "\n";
-            grasp_file << "plot " << running_job.restart_time << " jobResumed job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key << "\n";
+            grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
+            grasp_file << "plot " << running_job.restart_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
 
-            // lift priority to threashold for first subjob
-            if (running_job.key == 1)
-            {
-              running_job.current_prio = task_set[running_job.parent_task].threashold;
-            }
+            // lift priority to threashold
+            running_job.current_prio = task_set[running_job.parent_task].threashold;
 
             is_idle = false;
           }
@@ -271,16 +260,13 @@ int main(int argc, char** argv) {
       running_job.restart_time = current_time;
       if (false == was_idle)
       {
-        grasp_file << "plot " << current_time << " jobPreempted job" << prev_job.parent_task << "." << prev_job.parent_job << "." << prev_job.key;
-        grasp_file << " -target job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key << "\n";
+        grasp_file << "plot " << current_time << " jobPreempted job" << prev_job.parent_task << "." << prev_job.key;
+        grasp_file << " -target job" << running_job.parent_task << "." << running_job.key << "\n";
       }
-      grasp_file << "plot " << current_time << " jobResumed job" << running_job.parent_task << "." << running_job.parent_job << "." << running_job.key << "\n";
+      grasp_file << "plot " << current_time << " jobResumed job" << running_job.parent_task << "." << running_job.key << "\n";
 
-      // lift priority to threashold for first subjob
-      if (running_job.key == 1)
-      {
-        running_job.current_prio = task_set[running_job.parent_task].threashold;
-      }
+      // lift priority to threashold
+      running_job.current_prio = task_set[running_job.parent_task].threashold;
 
       is_idle = false;
     }

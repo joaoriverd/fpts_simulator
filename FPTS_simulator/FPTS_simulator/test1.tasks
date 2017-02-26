@@ -1,3 +1,4 @@
-25
-P   C1  C2  D   Pri Thr Phase #
-20  8   4   20  3   3   0
+200
+P   C  D  Pri Thr Phase #
+10  4  0  3   3   0
+17  5  0  2   3   0
