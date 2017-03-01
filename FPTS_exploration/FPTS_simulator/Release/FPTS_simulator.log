@@ -1,0 +1,11 @@
+﻿  FPTS_explorator.cpp
+FPTS_explorator.cpp(344): warning C4244: 'initializing': conversion from 'std::chrono::system_clock::rep' to 'unsigned int', possible loss of data
+FPTS_explorator.cpp(385): warning C4244: 'argument': conversion from 'double' to 'std::size_t', possible loss of data
+FPTS_explorator.cpp(390): warning C4244: '=': conversion from 'double' to 'std::size_t', possible loss of data
+  Generating code
+  1 of 435 functions ( 0.2%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    1 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  FPTS_simulator.vcxproj -> C:\Users\s152013\Documents\TUe Courses\Master Project\repo\fpts_simulator\FPTS_exploration\Release\FPTS_explorator.exe
+  FPTS_simulator.vcxproj -> C:\Users\s152013\Documents\TUe Courses\Master Project\repo\fpts_simulator\FPTS_exploration\Release\FPTS_explorator.pdb (Full PDB)

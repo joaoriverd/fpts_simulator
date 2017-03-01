@@ -1,0 +1,6 @@
+﻿  FPTS_explorator.cpp
+c:\users\s152013\documents\tue courses\master project\repo\fpts_simulator\fpts_exploration\fpts_simulator\fpts_explorator.cpp(344): warning C4244: 'initializing': conversion from 'std::chrono::system_clock::rep' to 'unsigned int', possible loss of data
+c:\users\s152013\documents\tue courses\master project\repo\fpts_simulator\fpts_exploration\fpts_simulator\fpts_explorator.cpp(385): warning C4244: 'argument': conversion from 'double' to 'std::size_t', possible loss of data
+c:\users\s152013\documents\tue courses\master project\repo\fpts_simulator\fpts_exploration\fpts_simulator\fpts_explorator.cpp(390): warning C4244: '=': conversion from 'double' to 'std::size_t', possible loss of data
+  FPTS_simulator.vcxproj -> C:\Users\s152013\Documents\TUe Courses\Master Project\repo\fpts_simulator\FPTS_exploration\Debug\FPTS_explorator.exe
+  FPTS_simulator.vcxproj -> C:\Users\s152013\Documents\TUe Courses\Master Project\repo\fpts_simulator\FPTS_exploration\Debug\FPTS_explorator.pdb (Full PDB)
