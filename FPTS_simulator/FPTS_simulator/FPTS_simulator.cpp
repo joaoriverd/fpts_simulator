@@ -10,7 +10,7 @@
 #include <algorithm>    // std::sort
 using namespace std;
 
-#define SIM_STEP 3
+#define SIM_STEP 1
 
 typedef size_t task_key_type;
 typedef size_t priority_type;
