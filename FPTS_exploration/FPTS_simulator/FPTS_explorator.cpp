@@ -26,7 +26,7 @@ using namespace std;
 #define NUM_PREEMPTIVE_TASKS 1
 #define NUM_DELAYING_TASKS   0
 #define NUM_BLOCKING_TASKS   1
-#define NUM_INFER_BLOCKING_TASKS   1   // The number of blocking tasks shoud be non-zero for this fiel to become non-zero
+#define NUM_INFER_BLOCKING_TASKS   0   // The number of blocking tasks shoud be non-zero for this field to become non-zero
 #define NUM_NON_BLOCKING_TASKS     0    
 #define NUMBER_OF_TASKS    (NUM_PREEMPTIVE_TASKS+NUM_DELAYING_TASKS+NUM_BLOCKING_TASKS+\
                            NUM_INFER_BLOCKING_TASKS+NUM_NON_BLOCKING_TASKS+1) 
@@ -39,10 +39,20 @@ using namespace std;
 #define IGNORING_INFERRED_BLOCKING 1
 #define IGNORING_LOWER_PRIO_TASKS 2
 #define IGNORING_DELAYING_TASKS 3
-#define EXPLORATION_MODE IGNORING_INFERRED_BLOCKING
+#define EXPLORATION_MODE IGNORING_DELAYING_TASKS
 
 // Change phase of target task (only) in the simulation to search shortest response time (it may slow the exploration)
 #define CHANGE_PHASE_TARGET_TASK true
+
+enum TaskTypeEnum
+{
+  target_task = 0,
+  preemptive_task,
+  delaying_task,
+  blocking_task,
+  inferred_blocking_task,
+  non_blocking_task
+};
 
 typedef size_t task_key_type;
 typedef size_t priority_type;
@@ -59,6 +69,7 @@ struct task_type
   size_t phase;
   size_t wcrt;
   size_t bcrt;
+  TaskTypeEnum type;
 };
 
 struct job_type
@@ -157,7 +168,7 @@ size_t lcm(size_t a, size_t b)
   return m;
 }
 
-void fpts_simulator(std::vector<task_type>& ts)
+void fpts_simulator(std::vector<task_type>& ts, size_t target_task_key)
 {
   static std::map<size_t, std::vector<job_type>> released_jobs;
   static std::vector<job_type> active_jobs;
@@ -269,7 +280,7 @@ void fpts_simulator(std::vector<task_type>& ts)
     prev_time = current_time;
 
     // break loop if lower bound found
-    if (ts[TARGET_TASK_ID].bcrt == bcht)
+    if (ts[target_task_key].bcrt == bcht)
     {
       break;
     }
@@ -383,31 +394,60 @@ void generate_random_taskset(std::vector<task_type>& ts)
   double cummulative_utilization;
   double lower_bound_period;
   bool valid_task_set = false;
+  size_t key;
 
-  // Initialise key, priority and threshold for all the tasks
-  for (size_t i = 0; i < NUMBER_OF_TASKS ; i++)
+  // Initialise keys, and priorities of all tasks
+  for (key = 0; key < NUMBER_OF_TASKS; key++)
   {
-    t1.key = i;
-    t1.prio = NUMBER_OF_TASKS - i;
-    if (i == TARGET_TASK_ID)
-    {
-      t1.threashold = TRH_TARGET_TASK;
-    }
-    else if (i > TARGET_TASK_ID && i <= TARGET_TASK_ID+NUM_BLOCKING_TASKS)
-    {
-      t1.threashold = ts[TARGET_TASK_ID].prio;
-    }
-    else if (i > TARGET_TASK_ID + NUM_BLOCKING_TASKS && 
-             i <= TARGET_TASK_ID + NUM_BLOCKING_TASKS + NUM_INFER_BLOCKING_TASKS)
-    {
-      t1.threashold = ts[TARGET_TASK_ID].prio - 1;
-    }
-    else
-    {
-      t1.threashold = t1.prio;
-    }
-
+    t1.key = key;
+    t1.prio = NUMBER_OF_TASKS - key;
     ts.push_back(t1);
+  }
+
+  // Initialise all preemptive tasks
+  key = 0;
+  for (size_t i = 0; i < NUM_PREEMPTIVE_TASKS; i++)
+  {
+    ts[key].threashold = ts[key].prio;
+    ts[key].type = preemptive_task;
+    key++;
+  }
+
+  // Initialise all delaying tasks
+  for (size_t i = 0; i < NUM_DELAYING_TASKS; i++)
+  {
+    ts[key].threashold = ts[key].prio;
+    ts[key].type = delaying_task;
+    key++;
+  }
+
+  // Initialise target task
+  ts[key].threashold = TRH_TARGET_TASK;
+  ts[key].type = target_task;
+  key++;
+
+  // Initialise all blocking tasks
+  for (size_t i = 0; i < NUM_BLOCKING_TASKS; i++)
+  {
+    ts[key].threashold = ts[TARGET_TASK_ID].prio;
+    ts[key].type = blocking_task;
+    key++;
+  }
+
+  // Initialise all inferred blocking tasks
+  for (size_t i = 0; i < NUM_INFER_BLOCKING_TASKS; i++)
+  {
+    ts[key].threashold = ts[TARGET_TASK_ID].prio - 1; // this tasks will block the blocking tasks of the target task
+    ts[key].type = inferred_blocking_task;
+    key++;
+  }
+
+  // Initialise all non-blocking tasks
+  for (size_t i = 0; i < NUM_NON_BLOCKING_TASKS; i++)
+  {
+    ts[key].threashold = ts[key].prio; 
+    ts[key].type = non_blocking_task;
+    key++;
   }
 
   // Initialise randomly period and execution time for all the tasks
@@ -453,32 +493,58 @@ void generate_random_taskset(std::vector<task_type>& ts)
 void fpts_simulator_changing_phases(std::vector<task_type>& ts)
 {
   size_t bcrt_temp = std::numeric_limits<size_t>::max();
-  size_t phase_temp = 0;
-  size_t& target_phase = ts[TARGET_TASK_ID].phase;
-  for (target_phase = 0; target_phase < ts[TARGET_TASK_ID].period; target_phase++)
+  size_t phase_temp_target = 0;
+  size_t phase_temp_preempt = 0;
+  size_t target_key;
+  
+  // Search target task
+  for (task_type t : ts)
   {
-    // Run simulator
-    fpts_simulator(ts);
-
-    // Keep track of the phase where the shortest response time was found
-    if (ts[TARGET_TASK_ID].bcrt < bcrt_temp)
+    if (t.type == target_task)
     {
-      bcrt_temp = ts[TARGET_TASK_ID].bcrt;
-      phase_temp = target_phase;
+      target_key = t.key;
+    }
+  }
+
+  size_t& target_phase = ts[target_key].phase;
+  size_t& preemptive_phase = ts[0].phase; // this assumes that it is at least one preemptive task
+
+  for (target_phase = 0; target_phase < ts[target_key].period; target_phase++)
+  {
+    for (preemptive_phase = 0; preemptive_phase < ts[0].period; preemptive_phase++)
+    {
+      // Run simulator
+      fpts_simulator(ts, target_key);
+
+      // Keep track of the phase where the shortest response time was found
+      if (ts[target_key].bcrt < bcrt_temp)
+      {
+        bcrt_temp = ts[target_key].bcrt;
+        phase_temp_target = target_phase;
+        phase_temp_preempt = preemptive_phase;
+      }
+
+      // Break loop if lower bound found
+      if (ts[target_key].bcrt == bcht)
+      {
+        break;
+      }
     }
 
     // Break loop if lower bound found
-    if (ts[TARGET_TASK_ID].bcrt == bcht)
+    if (ts[target_key].bcrt == bcht)
     {
       break;
     }
   }
-  target_phase = phase_temp;
+  target_phase = phase_temp_target;
+  preemptive_phase = phase_temp_preempt;
 }
 
 int main(int argc, char** argv) {
   std::vector<task_type> task_set;
   std::vector<task_type> task_set2;
+  size_t target_key2;
   //size_t bcht;
   bool non_trivial_taskset = false;
 
@@ -487,7 +553,7 @@ int main(int argc, char** argv) {
   {
     generate_random_taskset(task_set);
     
-    // Calculate the trivial best case hold time of the last task
+    // Calculate the trivial best case hold time of the target task
     bcht = best_case_hold_time(task_set, TARGET_TASK_ID);
 
     // Force phases to hypothetical optimal instant of task to analyse
@@ -524,21 +590,27 @@ int main(int argc, char** argv) {
     
 #if EXPLORATION_MODE == BCHT
     non_trivial_taskset = task_set[TARGET_TASK_ID].bcrt != bcht;
-#elif EXPLORATION_MODE == IGNORING_INFERRED_BLOCKING
+#else
     // Add all tasks exept inferred blocking tasks to task_set2
-    for (task_type& t : task_set)
+    size_t key = 0;
+    for (task_type t : task_set)
     {
-      if (t.key < NUMBER_OF_TASKS - NUM_INFER_BLOCKING_TASKS - NUM_PREEMPTIVE_TASKS ||
-          t.key >= NUMBER_OF_TASKS - NUM_PREEMPTIVE_TASKS)
+      if (t.type != delaying_task)
       {
+        t.key = key;
+        key++;
         task_set2.push_back(t);
+      }
+      if (t.type == target_task)
+      {
+        target_key2 = t.key;
       }
     }
     
     // Run simulator for this new task_set
     fpts_simulator_changing_phases(task_set2);
 
-    non_trivial_taskset = task_set[TARGET_TASK_ID].bcrt != task_set2[TARGET_TASK_ID].bcrt;
+    non_trivial_taskset = task_set[TARGET_TASK_ID].bcrt != task_set2[target_key2].bcrt;
 #endif
 
     if (non_trivial_taskset)
